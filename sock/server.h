@@ -4,6 +4,7 @@
 #include "../header.h"
 #include "../until/stream.h"
 
+#define MAX_BODY_LENGTH 2097152
 #ifndef MAX_PENDING_CONNECTS
 #define MAX_PENDING_CONNECTS 10 //最大连接数
 #endif

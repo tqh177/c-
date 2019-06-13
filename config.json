@@ -1,6 +1,13 @@
 {
     "rootpath": "e:/web",
-    "index": "index.html",
-    "ip": "0.0.0.0",
-    "port": 8080
+    "index": ["index.html","index.htm","index.php"],
+    "ip": "127.0.0.1",
+    "port": 8080,
+    "mime":{
+        "*":"text/html; charset=UTF-8",
+        "html":"text/html; charset=UTF-8",
+        "php":"text/html; charset=UTF-8",
+        "js":"application/javascript;charset=utf-8",
+        "ico":"image/x-icon"
+    }
 }
