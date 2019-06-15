@@ -1,45 +1,11 @@
 #include "server.h"
 #include "../config.h"
-
+#include "../api/api.h"
+#include <stdio.h>
+#include <sys/stat.h>
 inline void socket_recv(SOCKETINFO *psocketinfo); //接收客户端发来的消息，并解析http头
 static void handle(SOCKETINFO *psocketinfo);      //处理需要发送给客户端的消息,并放入缓冲区
-static FILE *tryIndex(char *path, pageindex *index)
-{
-    config *con = getConfig();
-    FILE *fp;
-    int from = strlen(path);
-    char tpath[216];
-    strcpy(tpath, path);
-    while (index)
-    {
-        strcpy(tpath + from, index->page);
-        fp = fopen(tpath, "rb");
-        if (fp)
-        {
-            strcpy(path, tpath);
-            return fp;
-        }
-        else
-            index = index->next;
-    }
-    return NULL;
-}
-static char *getmime(char *ext, mime *m)
-{
-    if (ext == NULL)
-    {
-        ext = "*";
-    }
-    while (m)
-    {
-        if (strcmp(ext, m->key) == 0)
-        {
-            return m->value;
-        }
-        m = m->next;
-    }
-    return NULL;
-}
+// 数据接收函数
 static inline void socket_recv(SOCKETINFO *psocketinfo)
 {
     BYTE buf[2048];
@@ -58,6 +24,10 @@ static inline void socket_recv(SOCKETINFO *psocketinfo)
         }
         else if (recv_len == SOCKET_ERROR)
         {
+            if (WSAGetLastError() == WSAEWOULDBLOCK)
+            {
+                return;
+            }
             psocketinfo->error = ERR_NET;
             return;
         }
@@ -125,12 +95,14 @@ static inline void socket_recv(SOCKETINFO *psocketinfo)
             { //body接收完毕处理
                 // 根据http头处理body
                 log("sock[%d]接收完成", psocketinfo->sock);
+                logHttp();
                 handle(psocketinfo);
                 return;
             }
         }
     } while (TRUE);
 }
+// 接收完客户端数据后的处理函数，主要负责将预发送的数据存入内存
 static void handle(SOCKETINFO *psocketinfo)
 {
     stream *s = newStream();
@@ -139,43 +111,75 @@ static void handle(SOCKETINFO *psocketinfo)
     config *con = getConfig();
     http header = psocketinfo->header;
     SOCKET sockClient = psocketinfo->sock;
+    int i, total = 0;
+    char sendBuf[2048]; //发送至客户端的字符串
+    char *header_buf = NULL;
+    char *mime;
     strcpy(path, con->rootpath);
-    if ((fp = fopen(strcat(path, header.path), "rb")) || (strcmp(strrchr(path, '/'), "/") == 0 && (fp = tryIndex(path, con->index))))
-    {
-        char sendBuf[MAX_HEADER_LENGTH]; //发送至客户端的字符串
-        char header_buf[] = "HTTP/1.1 200 ok\r\nContent-type: %s\r\nContent-Length: %d\r\n\r\n";
-        int i, total = 0;
-        char *mime;
+    if ((fp = fopen(strcat(path, header.path), "rb")) || (fp = tryIndex(con->index, path)))
+    {//200 OK
         char *ext;
-        do
-        {
-            i = fread(sendBuf, sizeof(BYTE), sizeof(sendBuf), fp);
-            total += i;
-            stream_push(s, sendBuf, i);
-            if (total > MAX_BODY_LENGTH)
-                break;
-        } while (i == sizeof(sendBuf));
-        fclose(fp);
+        header_buf = strcpy(psocketinfo->recv_header_buf.buf, "HTTP/1.1 200 ok\r\nContent-type: %s\r\nContent-Length: %d\r\n");
         ext = strrchr(path, '.');
         if (ext != NULL)
+        {
+            struct stat s;
+            stat(path, &s);
             ext++;
+            // 判断是否需要gzip压缩
+            if (con->gzip && s.st_size > con->gzip_min_length && strInArr(con->gzip_file, ext))
+            {
+                char gz_path[256];
+                char hash_str[17];
+                int Modified = s.st_mtime;
+                strcpy(gz_path, con->gzip_path);
+                hashPath(path, hash_str);
+                hash_str[16] = 0;
+                strcat(strcat(gz_path, hash_str), ".gz");
+                fclose(fp);
+                // 搜索gzip缓存，无则创建
+                if ((fp = fopen(gz_path, "rb")) == NULL || Modified > (stat(gz_path, &s), s.st_mtime))
+                {
+                    file2gzip(path, gz_path, 9);
+                    fp = fopen(gz_path, "rb");
+                }
+                // 添加gzip编码http头
+                strcat(header_buf, "Content-Encoding: gzip\r\n");
+            }
+        }
         mime = getmime(ext, con->mime);
         if (mime == NULL)
         {
             mime = "text/html; charset=UTF-8";
         }
-        i = sprintf(sendBuf, header_buf, mime, stream_len(s));
-        s = stream_unshift(s, sendBuf, i);
-        stream_clear(psocketinfo->recv_body.stream);
-        psocketinfo->recv_body.stream = NULL;
     }
     else
-    {
-        char header_buf[] = "HTTP/1.1 404 NOTFOUND\r\nContent-type: text/html\r\nContent-Length: 3\r\n\r\n404";
-        stream_push(s, header_buf, sizeof(header_buf) - 1);
-        stream_clear(psocketinfo->recv_body.stream);
-        // handleServerNotFound(sockClient);
+    {//404 NOT FOUND
+        header_buf = strcpy(psocketinfo->recv_header_buf.buf, "HTTP/1.1 404 NOTFOUND\r\nContent-type: %s\r\nContent-Length: %d\r\n");
+        mime = "text/html; charset=UTF-8";
+        fp = fopen(strcat(strcpy(path, con->rootpath), con->page_404), "rb");
     }
+    do
+    {
+        i = fread(sendBuf, sizeof(BYTE), sizeof(sendBuf), fp);
+        total += i;
+        stream_push(s, sendBuf, i);
+        if (total > MAX_BODY_LENGTH)
+            break;
+    } while (i == sizeof(sendBuf));
+    fclose(fp);
+    stringArray *parr = con->header;
+    while (parr)
+    {
+        strcat(header_buf, parr->value);
+        parr = parr->next;
+    }
+    i = sprintf(sendBuf, header_buf, mime, total);
+    strcat(sendBuf, "\r\n");
+    s = stream_unshift(s, sendBuf, i + 2);
+    stream_clear(psocketinfo->recv_body.stream);
+    psocketinfo->recv_body.stream = NULL;
+
     psocketinfo->send_buf.stream = s;
     header_clear(psocketinfo->header.header);
     psocketinfo->header.header = NULL;

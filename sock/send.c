@@ -1,4 +1,5 @@
 #include <winsock2.h>
+#include "server.h"
 #include "../until/stream.h"
 
 static inline int sendall(SOCKET sockfd, const char *buf, int len, int *err);

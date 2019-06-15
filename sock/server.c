@@ -125,7 +125,7 @@ void server_listen(char *ip, unsigned short port)
                             stream_clear(socketinfo[i].recv_body.stream);
                             socketinfo[i].recv_body.stream = NULL;
                             closesocket(socketinfo[i].sock);
-                            log(errstr[socketinfo[i].error]);
+                            log("sock[%d]%s", socketinfo[i].sock, errstr[socketinfo[i].error]);
                         }
                     }
                     else if (FD_ISSET(socketinfo[i].sock, &WriteSet))
@@ -137,7 +137,7 @@ void server_listen(char *ip, unsigned short port)
                             stream_clear(socketinfo[i].send_buf.stream);
                             socketinfo[i].send_buf.stream = NULL;
                             closesocket(socketinfo[i].sock);
-                            log(errstr[socketinfo[i].error]);
+                            log("sock[%d]%s", socketinfo[i].sock, errstr[socketinfo[i].error]);
                         }
                         else if (socketinfo[i].send_buf.from == stream_len(socketinfo[i].send_buf.stream))
                         {

@@ -30,7 +30,7 @@ extern config *getConfig()
         int len;
         object *window;
         object *temp;
-        pageindex index, *pindex = &index;
+        stringArray arr, *parr = &arr;
         mime mime, *pmime = &mime;
         stat("config.json", &st);
         str = malloc(sizeof(unsigned char) * st.st_size);
@@ -50,14 +50,16 @@ extern config *getConfig()
         temp = temp->child;
         while (temp && temp->type == OBJECT_STRING)
         {
-            pindex->next = malloc(sizeof(pageindex));
-            pindex->next->page = malloc(sizeof(char) * strlen(temp->value) + 1);
-            strcpy(pindex->next->page, temp->value);
-            pindex = pindex->next;
-            pindex->next = NULL;
+            parr->next = malloc(sizeof(stringArray));
+            parr->next->value = malloc(sizeof(char) * strlen(temp->value) + 1);
+            strcpy(parr->next->value, temp->value);
+            parr = parr->next;
+            parr->next = NULL;
             temp = temp->brother;
         }
-        con.index = index.next;
+        con.index = arr.next;
+        arr.next = NULL;
+        parr = &arr;
         temp = getObjectValue(window, "['mime']");
         assert(temp && temp->type == OBJECT_OBJECT);
         temp = temp->child;
@@ -79,6 +81,59 @@ extern config *getConfig()
         temp = getObjectValue(window, "['port']");
         assert(temp);
         con.port = temp->i;
+        temp = getObjectValue(window, "['gzip']");
+        assert(temp && temp->type == OBJECT_BOOL);
+        con.gzip = temp->i;
+        temp = getObjectValue(window, "['gzip_min_length']");
+        assert(temp && temp->type == OBJECT_NUMBER);
+        con.gzip_min_length = temp->i;
+        temp = getObjectValue(window, "['gzip_path']");
+        assert(temp && temp->type == OBJECT_STRING && strlen(temp->value) < 256);
+        strcpy(con.gzip_path, temp->value);
+        char path[256];
+        FILE *fp = fopen(strcat(strcpy(path, con.gzip_path), "lock"), "w+");
+        if (fp == NULL)
+        {
+            printf("%s目录不存在", con.gzip_path);
+            exit(EXIT_FAILURE);
+        }
+        temp = getObjectValue(window, "['gzip_file']");
+        assert(temp && temp->type == OBJECT_ARRAY);
+        temp = temp->child;
+        while (temp && temp->type == OBJECT_STRING)
+        {
+            parr->next = malloc(sizeof(stringArray));
+            parr->next->value = malloc(sizeof(char) * strlen(temp->value) + 1);
+            strcpy(parr->next->value, temp->value);
+            parr = parr->next;
+            parr->next = NULL;
+            temp = temp->brother;
+        }
+        con.gzip_file = arr.next;
+        arr.next = NULL;
+        parr = &arr;
+        temp = getObjectValue(window, "['header']");
+        if (temp)
+        {
+            assert(temp->type == OBJECT_ARRAY);
+            temp = temp->child;
+            while (temp && temp->type == OBJECT_STRING)
+            {
+                parr->next = malloc(sizeof(stringArray));
+                parr->next->value = malloc(sizeof(char) * strlen(temp->value) + 3);
+                strcpy(parr->next->value, temp->value);
+                strcat(parr->next->value, "\r\n");
+                parr = parr->next;
+                parr->next = NULL;
+                temp = temp->brother;
+            }
+            con.header = arr.next;
+            arr.next = NULL;
+            parr = &arr;
+        }
+        temp = getObjectValue(window, "['page_404']");
+        assert(temp && temp->type == OBJECT_STRING);
+        strcpy(con.page_404, temp->value);
         objectfree(window->child);
         free(window);
         puts("读取配置文件成功");

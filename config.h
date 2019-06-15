@@ -1,10 +1,12 @@
 #ifndef CONFIG_H
 #define CONFIG_H
-typedef struct pageindex
+
+typedef int BOOL;
+typedef struct stringArray
 {
-    char *page;
-    struct pageindex *next;
-} pageindex;
+    char *value;
+    struct stringArray *next;
+} stringArray;
 
 typedef struct mime
 {
@@ -15,12 +17,18 @@ typedef struct mime
 
 typedef struct config
 {
-    char rootpath[256];
-    char host[126];
-    pageindex *index;
-    char ip[16];
-    unsigned short port;
+    stringArray *index;
     mime *mime;
+    BOOL gzip;
+    unsigned int gzip_min_length;
+    unsigned short port;
+    char rootpath[126];
+    char host[126];
+    char ip[16];
+    char gzip_path[256];
+    stringArray *gzip_file;
+    stringArray *header;
+    char page_404[16];
 } config;
 
 config *getConfig();
